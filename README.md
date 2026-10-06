@@ -21,22 +21,24 @@ Task-IT is launching as a responsive web app first. Native iOS and Android apps 
 
 ## Tech Stack
 
-**TBD.** Candidate options will be evaluated before implementation begins:
+This simple MVP uses a lightweight stack for rapid local development:
 
-- **Frontend:** React, Next.js, Vue, or SvelteKit
-- **Backend:** Node.js, Python, Ruby, or a managed backend platform
-- **Database:** PostgreSQL, MySQL, or a managed document database
-- **Hosting:** Vercel, Render, Fly.io, AWS, or Azure
+- **Frontend:** React + Vite
+- **Backend:** Node.js + Express
+- **Database:** Not required for the initial MVP; sample data is kept in memory
+- **Hosting:** Ready for local development and future deployment to a managed platform
 
 ## Getting Started
 
-Setup steps will be added after the technology stack is selected.
-
-1. Install the project prerequisites.
-2. Install dependencies for the selected stack.
-3. Configure environment variables from the provided example file.
-4. Start the web application locally.
+1. Install project dependencies from the repo root:
+   npm install
+2. Start the backend and frontend together:
+   npm run dev
+3. Open the frontend in your browser:
+   http://localhost:5173
+4. The API health check is available at:
+   http://localhost:3001/api/health
 
 ## Project Status
 
-Pre-MVP / scaffolding stage.
+Simple MVP scaffolding and UI are in place.
