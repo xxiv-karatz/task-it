@@ -1,44 +1,84 @@
 # Task-IT
 
-Find trusted local professionals and get tasks done with confidence.
+Task-IT is a simple service marketplace MVP for South Africa, connecting customers with trusted local professionals for everyday services.
+
+## Overview
+
+The platform helps customers discover local providers for services such as barbering, tutoring, plumbing, electrical work, cleaning, and personal styling. It is designed to make booking easier while giving providers a clear way to showcase skills and availability.
 
 ## Problem
 
-Customers often struggle to find trustworthy, reliable service professionals. Independent providers struggle to find steady work and build visibility with new customers.
+Customers often struggle to find trustworthy, reliable professionals for everyday jobs. Independent providers also struggle to build visibility and find steady, recurring work.
 
-## What Task-IT Is
+## Core Value
 
-Task-IT is a South African service marketplace connecting customers with independent professionals, from barbers and tutors to electricians, plumbers, and repair specialists. The platform is intended to expand across Africa over time.
+- Customers can browse services by category and city.
+- Providers can be discovered via profile, rating, and service detail.
+- Requests are easy to compare, book, and track.
+- The platform can later expand into payments, messaging, verification, and subscriptions.
 
-## Revenue Models
+## MVP Features
 
-- **Model A: Lifestyle and Personal Services** - Task-IT sets the price and takes a commission on each completed booking for services such as barbering, hair, nails, makeup, tutoring, and personal training.
-- **Model B: Maintenance and Technical Services** - Providers pay a monthly subscription to list their services, while providers and clients agree on pricing for work such as repairs, painting, landscaping, plumbing, electrical, HVAC, and handyman services.
+### Customer-facing
 
-## Web First
+- Browse service categories
+- Search for services and providers
+- View sample provider listings and pricing
+- Review ratings and service descriptions
+- Book or request a service
 
-Task-IT is launching as a responsive web app first. Native iOS and Android apps are planned for a later phase, once web traction has been validated.
+### Provider-facing
+
+- Profile and service listing visibility
+- Basic service categorization
+- Pricing and city-based discovery
+
+### Platform/admin
+
+- Category aggregation overview
+- Marketplace listing data for initial launch validation
 
 ## Tech Stack
 
-This simple MVP uses a lightweight stack for rapid local development:
+This MVP uses a lightweight stack for fast local development:
 
-- **Frontend:** React + Vite
-- **Backend:** Node.js + Express
-- **Database:** Not required for the initial MVP; sample data is kept in memory
-- **Hosting:** Ready for local development and future deployment to a managed platform
+- Frontend: React + Vite
+- Backend: Node.js + Express
+- Data layer: In-memory sample data for the initial MVP
+- Runtime: Local development environment for testing and iteration
+
+## Project Structure
+
+- [web/frontend](web/frontend) - React frontend for the marketplace UI
+- [web/backend](web/backend) - Express API for service and category data
+- [docs](docs) - Planning and product documentation
 
 ## Getting Started
 
-1. Install project dependencies from the repo root:
+1. Install dependencies from the project root:
    npm install
-2. Start the backend and frontend together:
+2. Start both the backend and frontend:
    npm run dev
-3. Open the frontend in your browser:
+3. Open the app in your browser:
    http://localhost:5173
-4. The API health check is available at:
+4. Check the API health endpoint:
    http://localhost:3001/api/health
 
-## Project Status
+## Available API Endpoints
 
-Simple MVP scaffolding and UI are in place.
+- GET /api/health
+- GET /api/categories
+- GET /api/services
+
+## Current Status
+
+This project is in a simple MVP stage with a working landing page, searchable listings, and a local API backend. It is ready for further iteration into booking, authentication, payments, or provider onboarding flows.
+
+## Future Roadmap
+
+- Provider authentication and onboarding
+- Booking flows and scheduling
+- Payment and escrow support
+- Messaging between customers and providers
+- Verification and review management
+- Expansion into more cities and service categories
