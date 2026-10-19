@@ -8,11 +8,23 @@ function App() {
   const [providers, setProviders] = useState([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
+  const [session, setSession] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('taskit-session'));
+    } catch {
+      return null;
+    }
+  });
+  const [accountBookings, setAccountBookings] = useState([]);
+  const [accountTotals, setAccountTotals] = useState(null);
+  const [accountError, setAccountError] = useState('');
+  const [accountLoading, setAccountLoading] = useState(false);
   const [view, setView] = useState('home');
   const [selectedProviderId, setSelectedProviderId] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [bookingSummary, setBookingSummary] = useState(null);
+  const user = session?.user || null;
+  const token = session?.token || '';
 
   useEffect(() => {
     const loadData = async () => {
@@ -40,6 +52,34 @@ function App() {
     loadData();
   }, [query]);
 
+  useEffect(() => {
+    if (!session || !['customer-bookings', 'provider-dashboard'].includes(view)) return;
+
+    const loadAccount = async () => {
+      setAccountLoading(true);
+      setAccountError('');
+      const endpoint = user.role === 'Provider'
+        ? '/api/provider/dashboard'
+        : '/api/bookings/mine';
+
+      try {
+        const response = await fetch(endpoint, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || 'Could not load account data');
+        setAccountBookings(user.role === 'Provider' ? result.bookings : result.bookings);
+        setAccountTotals(result.totals || null);
+      } catch (error) {
+        setAccountError(error.message);
+      } finally {
+        setAccountLoading(false);
+      }
+    };
+
+    loadAccount();
+  }, [session, token, user?.role, view]);
+
   const filteredProviders = useMemo(() => {
     if (!query) return providers;
 
@@ -57,21 +97,67 @@ function App() {
     (selectedService && providers.find((provider) => provider.id === selectedService.providerId)) ||
     null;
 
-  const handleLogin = (form) => {
-    setUser({
-      name: form.name || 'Task-IT Customer',
-      email: form.email,
-      role: form.role || 'Customer'
-    });
+  const handleLogin = async (form) => {
+    setAccountError('');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Sign in failed');
+      const nextSession = { user: result.user, token: result.token };
+      localStorage.setItem('taskit-session', JSON.stringify(nextSession));
+      setSession(nextSession);
+      setView(selectedService && result.user.role === 'Customer'
+        ? 'booking'
+        : result.user.role === 'Provider' ? 'provider-dashboard' : 'home');
+    } catch (error) {
+      setAccountError(error.message);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('taskit-session');
+    setSession(null);
+    setAccountBookings([]);
+    setAccountTotals(null);
     setView('home');
+  };
+
+  const updateBookingStatus = async (bookingId, status) => {
+    try {
+      const response = await fetch(`/api/bookings/${bookingId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Could not update booking');
+      setAccountBookings((bookings) => bookings.map((booking) =>
+        booking.id === bookingId ? { ...booking, status: result.booking.status } : booking
+      ));
+      const dashboardResponse = await fetch('/api/provider/dashboard', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const dashboard = await dashboardResponse.json();
+      if (dashboardResponse.ok) {
+        setAccountBookings(dashboard.bookings);
+        setAccountTotals(dashboard.totals);
+      }
+    } catch (error) {
+      setAccountError(error.message);
+    }
   };
 
   const handleBookingSubmit = async (booking) => {
     const payload = {
       providerId: selectedProvider.id,
       serviceId: selectedService.id,
-      customerName: user?.name || booking.customerName,
-      customerEmail: user?.email || booking.customerEmail,
       date: booking.date,
       time: booking.time,
       notes: booking.notes
@@ -81,26 +167,19 @@ function App() {
       const response = await fetch('/api/bookings', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
 
       const result = await response.json();
-      setBookingSummary(result);
+      if (!response.ok) throw new Error(result.message || 'Booking failed');
+      setBookingSummary(result.booking);
       setView('confirmation');
     } catch (error) {
       console.error('Booking failed:', error);
-      setBookingSummary({
-        status: 'Pending review',
-        customerName: payload.customerName,
-        service: selectedService.title,
-        provider: selectedProvider.name,
-        date: payload.date,
-        time: payload.time,
-        total: `R${selectedService.price}`
-      });
-      setView('confirmation');
+      setAccountError(error.message);
     }
   };
 
@@ -114,14 +193,25 @@ function App() {
 
         <nav className="nav-links">
           <button onClick={() => setView('home')}>Browse</button>
-          <button onClick={() => setView('login')}>{user ? 'Account' : 'Login'}</button>
-          <button onClick={() => setSelectedProviderId(providers[0]?.id || null) || setView('provider')}>
-            Providers
+          {user && (
+            <button onClick={() => setView(user.role === 'Provider' ? 'provider-dashboard' : 'customer-bookings')}>
+              {user.role === 'Provider' ? 'Provider dashboard' : 'My bookings'}
+            </button>
+          )}
+          <button onClick={() => user ? handleLogout() : setView('login')}>
+            {user ? 'Sign out' : 'Login'}
           </button>
+          <button onClick={() => {
+            setSelectedProviderId(providers[0]?.id || null);
+            setView('provider');
+          }}>Providers</button>
         </nav>
 
-        <button className="primary-button" onClick={() => setView('login')}>
-          {user ? `Hi, ${user.name.split(' ')[0]}` : 'Book a service'}
+        <button className="primary-button" onClick={() => {
+          if (user) setView(user.role === 'Provider' ? 'provider-dashboard' : 'customer-bookings');
+          else setView('login');
+        }}>
+          {user ? user.name.split(' ')[0] : 'Book a service'}
         </button>
       </header>
 
@@ -239,7 +329,7 @@ function App() {
                       <button className="primary-button small" onClick={() => {
                         setSelectedService(service);
                         setSelectedProviderId(service.providerId);
-                        setView('booking');
+                        setView(user?.role === 'Customer' ? 'booking' : 'login');
                       }}>Book</button>
                     </div>
                   </div>
@@ -288,18 +378,9 @@ function App() {
           onSubmit={(event) => {
             event.preventDefault();
             const form = new FormData(event.currentTarget);
-            handleLogin({
-              name: form.get('name') || 'Nandi M.',
-              email: form.get('email') || 'customer@example.com',
-              role: form.get('role') || 'Customer'
-            });
+            handleLogin({ email: form.get('email'), password: form.get('password'), role: form.get('role') });
           }}
         >
-          <label>
-            Full name
-            <input name="name" defaultValue="Nandi M." required />
-          </label>
-
           <label>
             Email address
             <input name="email" type="email" defaultValue="nandi@example.com" required />
@@ -315,9 +396,11 @@ function App() {
 
           <label>
             Password
-            <input name="password" type="password" defaultValue="password123" required />
+            <input name="password" type="password" defaultValue="taskit-demo" required />
           </label>
 
+          <p className="form-hint">Demo customer: nandi@example.com. Provider: anele@taskit.test. Password: taskit-demo.</p>
+          {accountError && <p className="form-error" role="alert">{accountError}</p>}
           <button className="primary-button" type="submit">Continue</button>
         </form>
       </div>
@@ -360,7 +443,7 @@ function App() {
               onClick={() => {
                 const firstService = services.find((service) => service.providerId === selectedProvider.id);
                 setSelectedService(firstService || null);
-                setView('booking');
+                setView(user?.role === 'Customer' ? 'booking' : 'login');
               }}
             >
               Book with {selectedProvider.name}
@@ -403,7 +486,7 @@ function App() {
                     <strong>R{service.price}</strong>
                     <button className="primary-button small" onClick={() => {
                       setSelectedService(service);
-                      setView('booking');
+                      setView(user?.role === 'Customer' ? 'booking' : 'login');
                     }}>Book now</button>
                   </div>
                 </article>
@@ -451,6 +534,7 @@ function App() {
               });
             }}
           >
+            {accountError && <p className="form-error" role="alert">{accountError}</p>}
             <div className="booking-grid">
               <label>
                 Full name
@@ -500,19 +584,128 @@ function App() {
     );
   };
 
+  const renderCustomerBookings = () => (
+    <div className="page-shell account-page">
+      <header className="account-heading">
+        <div>
+          <p className="eyebrow">Customer account</p>
+          <h1>My bookings</h1>
+          <p>Track upcoming requests and revisit completed services.</p>
+        </div>
+        <button className="back-button" onClick={() => setView('home')}>Back to marketplace</button>
+      </header>
+
+      {accountLoading ? <p className="status-copy">Loading your bookings...</p> : null}
+      {accountError && <p className="form-error" role="alert">{accountError}</p>}
+      {!accountLoading && !accountError && accountBookings.length === 0 && (
+        <div className="empty-bookings">
+          <h2>No bookings yet</h2>
+          <p>When you book a service, its status and details will appear here.</p>
+          <button className="primary-button" onClick={() => setView('home')}>Browse services</button>
+        </div>
+      )}
+
+      <div className="booking-list">
+        {accountBookings.map((booking) => (
+          <article className="booking-row" key={booking.id}>
+            <div className="booking-row-main">
+              <div>
+                <span className={`status-chip status-${booking.status.toLowerCase()}`}>{booking.status}</span>
+                <h2>{booking.service_title}</h2>
+                <p>{booking.provider_name} · {booking.provider_city}</p>
+              </div>
+              <strong>R{booking.service_price}</strong>
+            </div>
+            <div className="booking-row-detail">
+              <span>{booking.date} at {booking.time}</span>
+              <span>Booking #{booking.id}</span>
+            </div>
+            {booking.notes && <p className="booking-notes">{booking.notes}</p>}
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderProviderDashboard = () => (
+    <div className="page-shell account-page">
+      <header className="account-heading">
+        <div>
+          <p className="eyebrow">Provider workspace</p>
+          <h1>{user?.name} dashboard</h1>
+          <p>Manage booking requests and track completed work.</p>
+        </div>
+        <button className="back-button" onClick={() => setView('home')}>Marketplace</button>
+      </header>
+
+      {accountLoading ? <p className="status-copy">Loading dashboard...</p> : null}
+      {accountError && <p className="form-error" role="alert">{accountError}</p>}
+
+      <section className="dashboard-metrics">
+        <div><span>All bookings</span><strong>{accountTotals?.total || 0}</strong></div>
+        <div><span>Waiting for you</span><strong>{accountTotals?.pending || 0}</strong></div>
+        <div><span>Accepted</span><strong>{accountTotals?.accepted || 0}</strong></div>
+        <div><span>Completed earnings</span><strong>R{accountTotals?.earnings || 0}</strong></div>
+      </section>
+
+      <div className="section-heading">
+        <h2>Booking requests</h2>
+        <span>{accountBookings.length} total</span>
+      </div>
+
+      {!accountLoading && accountBookings.length === 0 && (
+        <div className="empty-bookings">
+          <h2>Nothing to manage yet</h2>
+          <p>New customer requests for your services will appear here.</p>
+        </div>
+      )}
+
+      <div className="booking-list">
+        {accountBookings.map((booking) => (
+          <article className="booking-row" key={booking.id}>
+            <div className="booking-row-main">
+              <div>
+                <span className={`status-chip status-${booking.status.toLowerCase()}`}>{booking.status}</span>
+                <h2>{booking.service_title}</h2>
+                <p>{booking.customer_name} · {booking.customer_email}</p>
+              </div>
+              <strong>R{booking.service_price}</strong>
+            </div>
+            <div className="booking-row-detail">
+              <span>{booking.date} at {booking.time}</span>
+              <span>Booking #{booking.id}</span>
+            </div>
+            {booking.notes && <p className="booking-notes">{booking.notes}</p>}
+            {booking.status === 'Pending' && (
+              <div className="booking-actions">
+                <button className="quiet-button" onClick={() => updateBookingStatus(booking.id, 'Declined')}>Decline</button>
+                <button className="primary-button small" onClick={() => updateBookingStatus(booking.id, 'Accepted')}>Accept request</button>
+              </div>
+            )}
+            {booking.status === 'Accepted' && (
+              <div className="booking-actions">
+                <button className="primary-button small" onClick={() => updateBookingStatus(booking.id, 'Completed')}>Mark complete</button>
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+
   const renderConfirmation = () => (
     <div className="page-shell confirmation-page">
       <div className="confirmation-card">
-        <div className="confirmation-badge">Confirmed</div>
-        <h1>Your booking is ready</h1>
+        <div className="confirmation-badge">Request submitted</div>
+        <h1>Your booking request is in</h1>
         <p>
-          {bookingSummary?.service} with {bookingSummary?.provider} has been scheduled successfully.
+          {bookingSummary?.service_title} with {bookingSummary?.provider_name} is waiting for provider confirmation.
         </p>
 
         <div className="confirmation-summary">
           <div>
             <span>Booking ID</span>
-            <strong>{bookingSummary?.bookingId || 'TK-1024'}</strong>
+            <strong>#{bookingSummary?.id}</strong>
           </div>
           <div>
             <span>Date</span>
@@ -524,11 +717,11 @@ function App() {
           </div>
           <div>
             <span>Total</span>
-            <strong>{bookingSummary?.total || 'R0'}</strong>
+            <strong>R{bookingSummary?.service_price || 0}</strong>
           </div>
         </div>
 
-        <button className="primary-button" onClick={() => setView('home')}>Back to marketplace</button>
+        <button className="primary-button" onClick={() => setView('customer-bookings')}>View my bookings</button>
       </div>
     </div>
   );
@@ -536,6 +729,8 @@ function App() {
   if (view === 'login') return renderLogin();
   if (view === 'provider') return renderProvider();
   if (view === 'booking') return renderBooking();
+  if (view === 'customer-bookings') return renderCustomerBookings();
+  if (view === 'provider-dashboard') return renderProviderDashboard();
   if (view === 'confirmation') return renderConfirmation();
 
   return renderHome();

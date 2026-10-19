@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 vendor/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Build and coverage output
 dist/

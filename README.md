@@ -25,18 +25,21 @@ Customers often struggle to find trustworthy, reliable professionals for everyda
 - Search for services and providers
 - View sample provider listings and pricing
 - Review ratings and service descriptions
-- Book or request a service
+- Request a service and view its status in booking history
+- Sign in and return to a persisted customer account
 
 ### Provider-facing
 
-- Profile and service listing visibility
-- Basic service categorization
-- Pricing and city-based discovery
+- Provider profile, service listing, and city-based discovery
+- Booking dashboard with pending, accepted, and completed requests
+- Accept or decline requests and mark accepted work complete
+- Completed booking earnings summary
 
 ### Platform/admin
 
-- Category aggregation overview
-- Marketplace listing data for initial launch validation
+- Category and marketplace listing data
+- Persisted customer, provider, service, and booking records
+- Password-hashed demo accounts and signed API sessions
 
 ## Tech Stack
 
@@ -44,7 +47,8 @@ This MVP uses a lightweight stack for fast local development:
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
-- Data layer: In-memory sample data for the initial MVP
+- Data layer: SQLite database at `web/backend/task-it.sqlite`
+- Authentication: bcrypt password hashes and 12-hour JWT bearer tokens
 - Runtime: Local development environment for testing and iteration
 
 ## Project Structure
@@ -64,15 +68,31 @@ This MVP uses a lightweight stack for fast local development:
 4. Check the API health endpoint:
    http://localhost:3001/api/health
 
+### Demo accounts
+
+All seeded demo accounts use the password `taskit-demo`.
+
+- Customer: `nandi@example.com`
+- Provider: `anele@taskit.test`
+- Other providers use their first name in lowercase followed by `@taskit.test`.
+
+Set `JWT_SECRET` to a stable, private value before deployment. Without it, the API generates a temporary signing key on startup, so existing browser sessions will need to sign in again after a restart. The sample passwords are for local development only.
+
 ## Available API Endpoints
 
 - GET /api/health
 - GET /api/categories
 - GET /api/services
+- GET /api/providers and GET /api/providers/:id
+- POST /api/auth/login
+- POST /api/bookings (customer session required)
+- GET /api/bookings/mine (customer session required)
+- GET /api/provider/dashboard (provider session required)
+- PATCH /api/bookings/:id/status (provider session required)
 
 ## Current Status
 
-This project is in a simple MVP stage with a working landing page, searchable listings, and a local API backend. It is ready for further iteration into booking, authentication, payments, or provider onboarding flows.
+This project is a local MVP with searchable listings, persisted SQLite data, customer booking history, and a provider booking dashboard. Sign-in is implemented for seeded demo accounts; account registration, payment processing, and deployment-grade security are not yet included.
 
 ## Future Roadmap
 
