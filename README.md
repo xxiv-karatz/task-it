@@ -21,7 +21,7 @@ Customers often struggle to find trustworthy, reliable professionals for everyda
 
 ### Customer-facing
 
-- Browse service categories
+- Browse administrator-created service categories
 - Search for services and providers
 - View sample provider listings and pricing
 - Review ratings and service descriptions
@@ -61,22 +61,19 @@ This MVP uses a lightweight stack for fast local development:
 
 1. Install dependencies from the project root:
    npm install
-2. Start both the backend and frontend:
+2. Configure admin credentials by copying `web/backend/.env.example` to `web/backend/.env` and setting a private email, strong password, and stable random `JWT_SECRET`.
+3. Start both the backend and frontend:
    npm run dev
-3. Open the app in your browser:
+4. Open the app in your browser:
    http://localhost:5173
-4. Check the API health endpoint:
+5. Check the API health endpoint:
    http://localhost:3001/api/health
 
-### Demo accounts
+The old sample providers, services, customers, reviews, ratings, and bookings are not seeded. On first start after this update, the database migration removes the previous sample records and creates an empty catalog. Use the admin account to add real marketplace information.
 
-All seeded demo accounts use the password `taskit-demo`.
+Customers can create an account from the sign-in screen. Admin credentials are read from `web/backend/.env` and there is no default admin account. Create provider accounts through the admin dashboard; the admin sets their initial password.
 
-- Customer: `nandi@example.com`
-- Provider: `anele@taskit.test`
-- Other providers use their first name in lowercase followed by `@taskit.test`.
-
-Set `JWT_SECRET` to a stable, private value before deployment. Without it, the API generates a temporary signing key on startup, so existing browser sessions will need to sign in again after a restart. The sample passwords are for local development only.
+Set `JWT_SECRET` to a stable, private value before deployment. In development, if it is omitted, the API generates a temporary signing key on startup, so browser sessions will need to sign in again after a restart.
 
 ## Available API Endpoints
 
@@ -85,14 +82,16 @@ Set `JWT_SECRET` to a stable, private value before deployment. Without it, the A
 - GET /api/services
 - GET /api/providers and GET /api/providers/:id
 - POST /api/auth/login
+- POST /api/auth/register (customer)
 - POST /api/bookings (customer session required)
 - GET /api/bookings/mine (customer session required)
 - GET /api/provider/dashboard (provider session required)
 - PATCH /api/bookings/:id/status (provider session required)
+- `/api/admin/*` routes for summary, categories, provider accounts, service listings, and bookings (admin session required)
 
 ## Current Status
 
-This project is a local MVP with searchable listings, persisted SQLite data, customer booking history, and a provider booking dashboard. Sign-in is implemented for seeded demo accounts; account registration, payment processing, and deployment-grade security are not yet included.
+This project is a local MVP with searchable SQLite-backed listings, customer booking history, a provider dashboard, and an admin management area. Payments are not integrated. The in-app Terms of Service and Privacy Policy are draft templates and must be reviewed by qualified South African legal counsel before public launch.
 
 ## Future Roadmap
 

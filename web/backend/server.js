@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
@@ -5,250 +6,55 @@ import jwt from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
 import database from './database.js';
 
+dotenv.config({ path: new URL('./.env', import.meta.url) });
+
 const app = express();
 const port = process.env.PORT || 3001;
+const isProduction = process.env.NODE_ENV === 'production';
+const jwtSecret = process.env.JWT_SECRET || (isProduction ? '' : randomBytes(32).toString('hex'));
+const adminEmail = process.env.ADMIN_EMAIL;
+const adminPassword = process.env.ADMIN_PASSWORD;
+
+if (!jwtSecret) throw new Error('Set JWT_SECRET before starting the production server');
+if (isProduction && (!adminEmail || !adminPassword)) {
+  throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD before starting the production server');
+}
+
+if (!isProduction && (!adminEmail || !adminPassword)) {
+  console.warn('Admin access is disabled. Set ADMIN_EMAIL and ADMIN_PASSWORD to configure it.');
+}
+
+if (adminEmail && adminPassword) {
+  database.prepare(`
+    INSERT INTO admin_users (email, password_hash) VALUES (?, ?)
+    ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash
+  `).run(adminEmail.trim(), bcrypt.hashSync(adminPassword, 12));
+}
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
-const jwtSecret = process.env.JWT_SECRET || randomBytes(32).toString('hex');
+const providerSelect = `
+  SELECT providers.id, providers.name, providers.city, providers.category_id AS categoryId,
+    categories.name AS category, providers.bio, providers.pricing, providers.specialties,
+    providers.availability, providers.hero_image AS heroImage, providers.is_active AS isActive
+  FROM providers JOIN categories ON categories.id = providers.category_id
+`;
 
-const providers = [
-  {
-    id: 1,
-    name: 'Anele M.',
-    city: 'Johannesburg',
-    rating: 4.9,
-    reviewCount: 128,
-    category: 'Barber',
-    responseTime: 'Within 30 mins',
-    bio: 'Experienced barber helping professionals and families with premium grooming and beard styling.',
-    experience: '8 years',
-    pricing: 'From R180',
-    specialties: ['Haircuts', 'Beard trims', 'Styling'],
-    availability: ['Mon', 'Tue', 'Thu', 'Sat'],
-    heroImage: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=80'
-  },
-  {
-    id: 2,
-    name: 'Lehlohonolo P.',
-    city: 'Cape Town',
-    rating: 4.8,
-    reviewCount: 94,
-    category: 'Tutor',
-    responseTime: 'Within 1 hour',
-    bio: 'High-school tutor specializing in maths, science, and exam preparation with personalized lesson plans.',
-    experience: '6 years',
-    pricing: 'From R220',
-    specialties: ['Math tutoring', 'Exam prep', 'Homework support'],
-    availability: ['Mon', 'Wed', 'Fri', 'Sun'],
-    heroImage: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80'
-  },
-  {
-    id: 3,
-    name: 'Sipho K.',
-    city: 'Durban',
-    rating: 4.7,
-    reviewCount: 76,
-    category: 'Plumber',
-    responseTime: 'Within 45 mins',
-    bio: 'Emergency plumber focused on fast leak repairs, pipe replacements, and home maintenance support.',
-    experience: '10 years',
-    pricing: 'From R420',
-    specialties: ['Leak fixes', 'Pipe installations', 'Bathroom plumbing'],
-    availability: ['Tue', 'Thu', 'Fri', 'Sat'],
-    heroImage: 'https://images.unsplash.com/photo-1556157382-97eda2d62296?auto=format&fit=crop&w=900&q=80'
-  },
-  {
-    id: 4,
-    name: 'Mpho D.',
-    city: 'Pretoria',
-    rating: 4.9,
-    reviewCount: 141,
-    category: 'Electrician',
-    responseTime: 'Within 30 mins',
-    bio: 'Certified electrician offering efficient rewiring, light install, and home safety inspections.',
-    experience: '9 years',
-    pricing: 'From R380',
-    specialties: ['Wiring checks', 'Lighting', 'Electrical repairs'],
-    availability: ['Mon', 'Wed', 'Thu', 'Sat'],
-    heroImage: 'https://images.unsplash.com/photo-1504593811423-6dd665756598?auto=format&fit=crop&w=900&q=80'
-  },
-  {
-    id: 5,
-    name: 'Lethabo N.',
-    city: 'Sandton',
-    rating: 5.0,
-    reviewCount: 162,
-    category: 'Makeup',
-    responseTime: 'Within 2 hours',
-    bio: 'Bridal and event makeup artist with a focus on natural glam, quick touch-ups, and polished finishes.',
-    experience: '7 years',
-    pricing: 'From R650',
-    specialties: ['Bridal makeup', 'Event glam', 'Trial sessions'],
-    availability: ['Tue', 'Wed', 'Fri', 'Sun'],
-    heroImage: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80'
-  },
-  {
-    id: 6,
-    name: 'Zanele T.',
-    city: 'Gqeberha',
-    rating: 4.8,
-    reviewCount: 83,
-    category: 'Cleaner',
-    responseTime: 'Within 90 mins',
-    bio: 'Detail-oriented cleaner helping families and small businesses with regular and deep cleaning services.',
-    experience: '5 years',
-    pricing: 'From R340',
-    specialties: ['Deep cleaning', 'Home resets', 'Office tidying'],
-    availability: ['Mon', 'Tue', 'Thu', 'Fri'],
-    heroImage: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80'
-  }
-];
-
-const services = [
-  {
-    id: 1,
-    providerId: 1,
-    category: 'Barber',
-    title: 'Signature Haircut',
-    provider: 'Anele M.',
-    city: 'Johannesburg',
-    rating: 4.9,
-    price: 180,
-    description: 'Precision cuts, beard shaping, and grooming for busy professionals.'
-  },
-  {
-    id: 2,
-    providerId: 2,
-    category: 'Tutor',
-    title: 'Math Booster Session',
-    provider: 'Lehlohonolo P.',
-    city: 'Cape Town',
-    rating: 4.8,
-    price: 220,
-    description: 'Support for Grade 8 to 12 learners with focused weekly tutoring.'
-  },
-  {
-    id: 3,
-    providerId: 3,
-    category: 'Plumber',
-    title: 'Emergency Pipe Fix',
-    provider: 'Sipho K.',
-    city: 'Durban',
-    rating: 4.7,
-    price: 420,
-    description: 'Leak detection and quick repairs for kitchens, bathrooms, and outdoor pipes.'
-  },
-  {
-    id: 4,
-    providerId: 4,
-    category: 'Electrician',
-    title: 'Home Wiring Check',
-    provider: 'Mpho D.',
-    city: 'Pretoria',
-    rating: 4.9,
-    price: 380,
-    description: 'Safety inspections and light fixture upgrades for modern homes.'
-  },
-  {
-    id: 5,
-    providerId: 5,
-    category: 'Makeup',
-    title: 'Bridal Makeup Trial',
-    provider: 'Lethabo N.',
-    city: 'Sandton',
-    rating: 5.0,
-    price: 650,
-    description: 'Elegant bridal styling with a polished finish and personalized planning.'
-  },
-  {
-    id: 6,
-    providerId: 6,
-    category: 'Cleaner',
-    title: 'Deep Home Cleaning',
-    provider: 'Zanele T.',
-    city: 'Gqeberha',
-    rating: 4.8,
-    price: 340,
-    description: 'Reliable weekly and monthly cleaning with eco-friendly products.'
-  }
-];
-
-const seed = database.transaction(() => {
-  const addProvider = database.prepare(`
-    INSERT OR IGNORE INTO providers
-      (id, name, city, rating, review_count, category, response_time, bio, experience, pricing, specialties, availability, hero_image)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const addService = database.prepare(`
-    INSERT OR IGNORE INTO services (id, provider_id, category, title, rating, price, description)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  const addUser = database.prepare(`
-    INSERT OR IGNORE INTO users (name, email, role, provider_id, password_hash) VALUES (?, ?, ?, ?, ?)
-  `);
-  const demoPasswordHash = bcrypt.hashSync('taskit-demo', 10);
-
-  for (const provider of providers) {
-    addProvider.run(
-      provider.id,
-      provider.name,
-      provider.city,
-      provider.rating,
-      provider.reviewCount,
-      provider.category,
-      provider.responseTime,
-      provider.bio,
-      provider.experience,
-      provider.pricing,
-      JSON.stringify(provider.specialties),
-      JSON.stringify(provider.availability),
-      provider.heroImage
-    );
-    addUser.run(provider.name, `${provider.name.split(' ')[0].toLowerCase()}@taskit.test`, 'Provider', provider.id, demoPasswordHash);
-  }
-
-  addUser.run('Nandi M.', 'nandi@example.com', 'Customer', null, demoPasswordHash);
-  database.prepare('UPDATE users SET password_hash = ? WHERE password_hash IS NULL').run(demoPasswordHash);
-
-  for (const service of services) {
-    addService.run(
-      service.id,
-      service.providerId,
-      service.category,
-      service.title,
-      service.rating,
-      service.price,
-      service.description
-    );
-  }
-});
-
-seed();
-
-const mapProvider = (provider) => ({
-  id: provider.id,
-  name: provider.name,
-  city: provider.city,
-  rating: provider.rating,
-  reviewCount: provider.review_count,
-  category: provider.category,
-  responseTime: provider.response_time,
-  bio: provider.bio,
-  experience: provider.experience,
-  pricing: provider.pricing,
-  specialties: JSON.parse(provider.specialties),
-  availability: JSON.parse(provider.availability),
-  heroImage: provider.hero_image
-});
+const serviceSelect = `
+  SELECT services.id, services.provider_id AS providerId, services.category_id AS categoryId,
+    categories.name AS category, services.title, services.price, services.description,
+    services.is_active AS isActive, providers.name AS provider, providers.city
+  FROM services
+  JOIN categories ON categories.id = services.category_id
+  JOIN providers ON providers.id = services.provider_id
+`;
 
 const bookingSelect = `
-  SELECT bookings.id, bookings.date, bookings.time, bookings.notes, bookings.status, bookings.created_at,
-    users.name AS customer_name, users.email AS customer_email,
-    providers.id AS provider_id, providers.name AS provider_name,
-    providers.city AS provider_city, services.id AS service_id,
-    services.title AS service_title, services.price AS service_price
+  SELECT bookings.id, bookings.date, bookings.time, bookings.notes, bookings.status, bookings.created_at AS createdAt,
+    users.name AS customerName, users.email AS customerEmail,
+    providers.id AS providerId, providers.name AS providerName, providers.city AS providerCity,
+    services.id AS serviceId, services.title AS serviceTitle, services.price AS servicePrice
   FROM bookings
   JOIN users ON users.id = bookings.customer_id
   JOIN providers ON providers.id = bookings.provider_id
@@ -258,160 +64,345 @@ const bookingSelect = `
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) return res.status(401).json({ message: 'Sign in to continue' });
-
   try {
     req.user = jwt.verify(token, jwtSecret);
+    const account = req.user.role === 'Admin'
+      ? database.prepare('SELECT id FROM admin_users WHERE id = ? AND email = ? COLLATE NOCASE').get(req.user.id, req.user.email)
+      : database.prepare('SELECT id FROM users WHERE id = ? AND email = ? COLLATE NOCASE AND role = ?').get(req.user.id, req.user.email, req.user.role);
+    if (!account) return res.status(401).json({ message: 'This account is no longer available. Sign in again.' });
     return next();
   } catch {
     return res.status(401).json({ message: 'Your session is invalid or expired' });
   }
 };
 
+const requireRole = (role) => (req, res, next) => {
+  if (req.user?.role !== role) return res.status(403).json({ message: `${role} account required` });
+  return next();
+};
+
+const adminOnly = [authenticate, requireRole('Admin')];
+const isValidId = (value) => Number.isInteger(Number(value)) && Number(value) > 0;
+const adminSummary = (row) => ({ id: row.id, email: row.email, role: 'Admin' });
+
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'task-it backend',
-    storage: 'sqlite'
-  });
+  res.json({ status: 'ok', service: 'task-it backend', storage: 'sqlite' });
 });
+
+app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user }));
 
 app.post('/api/auth/login', (req, res) => {
   const { email, password, role } = req.body;
-  if (!email || !password || !['Customer', 'Provider'].includes(role)) {
+  if (!email || !password || !['Customer', 'Provider', 'Admin'].includes(role)) {
     return res.status(400).json({ message: 'Email, password, and account type are required' });
   }
 
-  const user = database.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE AND role = ?')
-    .get(email.trim(), role);
-
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ message: 'Email or password is incorrect' });
+  let user;
+  if (role === 'Admin') {
+    user = database.prepare('SELECT * FROM admin_users WHERE email = ? COLLATE NOCASE').get(email.trim());
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ message: 'Email or password is incorrect' });
+    }
+    user = adminSummary(user);
+  } else {
+    user = database.prepare('SELECT id, name, email, role, provider_id AS providerId, password_hash AS passwordHash FROM users WHERE email = ? COLLATE NOCASE AND role = ?')
+      .get(email.trim(), role);
+    if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+      return res.status(401).json({ message: 'Email or password is incorrect' });
+    }
+    delete user.passwordHash;
   }
 
-  const publicUser = { id: user.id, name: user.name, email: user.email, role: user.role, providerId: user.provider_id };
-  const token = jwt.sign(publicUser, jwtSecret, { expiresIn: '12h' });
-  return res.json({ token, user: publicUser });
+  const token = jwt.sign(user, jwtSecret, { expiresIn: '12h' });
+  return res.json({ token, user });
+});
+
+app.post('/api/auth/register', (req, res) => {
+  const { name, email, password, role, acceptedPolicies, city, categoryId, bio, pricing, specialties, availability } = req.body;
+  if (!name?.trim() || !email?.trim() || !password || password.length < 10 || acceptedPolicies !== true || !['Customer', 'Provider'].includes(role)) {
+    return res.status(400).json({ message: 'Name, email, a password of at least 10 characters, a valid account type, and policy acceptance are required' });
+  }
+
+  if (role === 'Provider' && (!city?.trim() || !isValidId(categoryId))) {
+    return res.status(400).json({ message: 'City and service category are required for provider registration' });
+  }
+
+  if (role === 'Provider' && !database.prepare('SELECT id FROM categories WHERE id = ?').get(Number(categoryId))) {
+    return res.status(400).json({ message: 'Select a category currently offered on Task-IT' });
+  }
+
+  try {
+    const user = database.transaction(() => {
+      let providerId = null;
+      if (role === 'Provider') {
+        const providerResult = database.prepare(`
+          INSERT INTO providers (name, city, category_id, bio, pricing, specialties, availability)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          name.trim(),
+          city.trim(),
+          Number(categoryId),
+          (bio || '').trim().slice(0, 2000),
+          (pricing || '').trim().slice(0, 200),
+          (specialties || '').trim().slice(0, 500),
+          (availability || '').trim().slice(0, 500)
+        );
+        providerId = providerResult.lastInsertRowid;
+      }
+
+      const userResult = database.prepare(`
+        INSERT INTO users (name, email, password_hash, role, provider_id, terms_accepted_at, privacy_accepted_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(name.trim(), email.trim(), bcrypt.hashSync(password, 12), role, providerId);
+
+      return { id: userResult.lastInsertRowid, name: name.trim(), email: email.trim(), role, providerId };
+    })();
+    const token = jwt.sign(user, jwtSecret, { expiresIn: '12h' });
+    return res.status(201).json({ token, user });
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ message: 'An account with this email already exists' });
+    throw error;
+  }
 });
 
 app.get('/api/categories', (req, res) => {
   const categories = database.prepare(`
-    SELECT category AS name, COUNT(*) AS count FROM services GROUP BY category ORDER BY category
+    SELECT categories.id, categories.name, COUNT(DISTINCT services.id) AS serviceCount
+    FROM categories LEFT JOIN services ON services.category_id = categories.id AND services.is_active = 1
+    GROUP BY categories.id ORDER BY categories.name
   `).all();
   res.json(categories);
 });
 
 app.get('/api/services', (req, res) => {
   const query = `%${(req.query.q || '').toString().trim()}%`;
-  const filtered = database.prepare(`
-    SELECT services.id, services.provider_id AS providerId, services.category, services.title,
-      providers.name AS provider, providers.city, services.rating, services.price, services.description
-    FROM services JOIN providers ON providers.id = services.provider_id
-    WHERE services.title LIKE ? OR services.category LIKE ? OR providers.name LIKE ? OR providers.city LIKE ?
-    ORDER BY services.id
+  const services = database.prepare(`
+    ${serviceSelect}
+    WHERE services.is_active = 1 AND providers.is_active = 1
+      AND (services.title LIKE ? OR categories.name LIKE ? OR providers.name LIKE ? OR providers.city LIKE ?)
+    ORDER BY services.created_at DESC, services.id DESC
   `).all(query, query, query, query);
-  res.json({
-    count: filtered.length,
-    services: filtered
-  });
+  res.json({ count: services.length, services });
 });
 
 app.get('/api/providers', (req, res) => {
-  const providerList = database.prepare('SELECT * FROM providers ORDER BY id').all().map(mapProvider);
-  res.json({
-    count: providerList.length,
-    providers: providerList
-  });
+  const providers = database.prepare(`${providerSelect} WHERE providers.is_active = 1 ORDER BY providers.name`).all();
+  res.json({ count: providers.length, providers });
 });
 
 app.get('/api/providers/:id', (req, res) => {
-  const providerId = Number(req.params.id);
-  const provider = database.prepare('SELECT * FROM providers WHERE id = ?').get(providerId);
-
-  if (!provider) {
-    return res.status(404).json({ message: 'Provider not found' });
-  }
-
-  const providerServices = database.prepare(`
-    SELECT id, provider_id AS providerId, category, title, rating, price, description
-    FROM services WHERE provider_id = ? ORDER BY id
-  `).all(providerId);
-
-  return res.json({
-    provider: mapProvider(provider),
-    services: providerServices
-  });
+  const provider = database.prepare(`${providerSelect} WHERE providers.id = ? AND providers.is_active = 1`).get(Number(req.params.id));
+  if (!provider) return res.status(404).json({ message: 'Provider not found' });
+  const services = database.prepare(`${serviceSelect} WHERE services.provider_id = ? AND services.is_active = 1 ORDER BY services.title`)
+    .all(provider.id);
+  return res.json({ provider, services });
 });
 
-app.get('/api/bookings/mine', authenticate, (req, res) => {
-  if (req.user.role !== 'Customer') return res.status(403).json({ message: 'Customer account required' });
-
-  const bookings = database.prepare(`${bookingSelect} WHERE bookings.customer_id = ? ORDER BY bookings.date DESC, bookings.time DESC`)
-    .all(req.user.id);
+app.get('/api/bookings/mine', authenticate, requireRole('Customer'), (req, res) => {
+  const bookings = database.prepare(`${bookingSelect} WHERE bookings.customer_id = ? ORDER BY bookings.date DESC, bookings.time DESC`).all(req.user.id);
   return res.json({ count: bookings.length, bookings });
 });
 
-app.get('/api/provider/dashboard', authenticate, (req, res) => {
-  if (req.user.role !== 'Provider' || !req.user.providerId) {
-    return res.status(403).json({ message: 'Provider account required' });
-  }
-
-  const provider = database.prepare('SELECT * FROM providers WHERE id = ?').get(req.user.providerId);
-  const bookings = database.prepare(`${bookingSelect} WHERE bookings.provider_id = ? ORDER BY bookings.date, bookings.time`)
-    .all(req.user.providerId);
+app.get('/api/provider/dashboard', authenticate, requireRole('Provider'), (req, res) => {
+  if (!req.user.providerId) return res.status(403).json({ message: 'Provider profile is not configured' });
+  const bookings = database.prepare(`${bookingSelect} WHERE bookings.provider_id = ? ORDER BY bookings.date, bookings.time`).all(req.user.providerId);
   const totals = database.prepare(`
     SELECT COUNT(*) AS total,
       SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status = 'Accepted' THEN 1 ELSE 0 END) AS accepted,
       SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completed,
       COALESCE(SUM(CASE WHEN status = 'Completed' THEN services.price ELSE 0 END), 0) AS earnings
-    FROM bookings JOIN services ON services.id = bookings.service_id
-    WHERE bookings.provider_id = ?
+    FROM bookings JOIN services ON services.id = bookings.service_id WHERE bookings.provider_id = ?
   `).get(req.user.providerId);
-
-  return res.json({ provider: mapProvider(provider), totals, bookings });
+  return res.json({ totals, bookings });
 });
 
-app.post('/api/bookings', authenticate, (req, res) => {
+app.post('/api/bookings', authenticate, requireRole('Customer'), (req, res) => {
   const { providerId, serviceId, date, time, notes } = req.body;
-  if (req.user.role !== 'Customer') return res.status(403).json({ message: 'Customer account required' });
-  if (!providerId || !serviceId || !date || !time) {
-    return res.status(400).json({ message: 'Provider, service, date, and time are required' });
+  if (!isValidId(providerId) || !isValidId(serviceId) || !/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !/^\d{2}:\d{2}$/.test(time || '')) {
+    return res.status(400).json({ message: 'Select a provider, service, valid date, and time' });
   }
 
-  const service = database.prepare('SELECT id FROM services WHERE id = ? AND provider_id = ?')
-    .get(Number(serviceId), Number(providerId));
-  if (!service) return res.status(404).json({ message: 'Service not found for this provider' });
+  const service = database.prepare('SELECT id FROM services WHERE id = ? AND provider_id = ? AND is_active = 1').get(Number(serviceId), Number(providerId));
+  const provider = database.prepare('SELECT id FROM providers WHERE id = ? AND is_active = 1').get(Number(providerId));
+  if (!service || !provider) return res.status(404).json({ message: 'Service is no longer available' });
 
-  const result = database.prepare(`
-    INSERT INTO bookings (customer_id, provider_id, service_id, date, time, notes)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(req.user.id, Number(providerId), Number(serviceId), date, time, notes || '');
-
+  const result = database.prepare('INSERT INTO bookings (customer_id, provider_id, service_id, date, time, notes) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, Number(providerId), Number(serviceId), date, time, (notes || '').toString().slice(0, 2000));
   const booking = database.prepare(`${bookingSelect} WHERE bookings.id = ?`).get(result.lastInsertRowid);
   return res.status(201).json({ booking });
 });
 
-app.patch('/api/bookings/:id/status', authenticate, (req, res) => {
+app.patch('/api/bookings/:id/status', authenticate, (req, res, next) => {
+  if (!['Provider', 'Admin'].includes(req.user.role)) return res.status(403).json({ message: 'Provider or admin account required' });
+  return next();
+}, (req, res) => {
   const { status } = req.body;
-  const transitions = {
-    Pending: ['Accepted', 'Declined'],
-    Accepted: ['Completed']
-  };
-  if (req.user.role !== 'Provider') return res.status(403).json({ message: 'Provider account required' });
-  const existing = database.prepare('SELECT status FROM bookings WHERE id = ? AND provider_id = ?')
-    .get(Number(req.params.id), req.user.providerId);
-  if (!existing) return res.status(404).json({ message: 'Booking not found for this provider' });
-  if (!transitions[existing.status]?.includes(status)) {
-    return res.status(409).json({ message: `Cannot move booking from ${existing.status} to ${status}` });
+  const existing = database.prepare('SELECT status, provider_id FROM bookings WHERE id = ?').get(Number(req.params.id));
+  if (!existing) return res.status(404).json({ message: 'Booking not found' });
+  if (req.user.role === 'Provider' && existing.provider_id !== req.user.providerId) {
+    return res.status(403).json({ message: 'You cannot update this booking' });
   }
 
-  const result = database.prepare(`
-    UPDATE bookings SET status = ? WHERE id = ? AND provider_id = ? AND status = ?
-  `).run(status, Number(req.params.id), req.user.providerId, existing.status);
-  if (!result.changes) return res.status(409).json({ message: 'Booking status changed; refresh and try again' });
+  const allowedStatuses = req.user.role === 'Admin'
+    ? ['Pending', 'Accepted', 'Completed', 'Declined']
+    : ({ Pending: ['Accepted', 'Declined'], Accepted: ['Completed'] }[existing.status] || []);
+  if (!allowedStatuses.includes(status)) return res.status(409).json({ message: `Cannot move booking from ${existing.status} to ${status}` });
 
-  const booking = database.prepare(`${bookingSelect} WHERE bookings.id = ?`).get(Number(req.params.id));
-  return res.json({ booking });
+  database.prepare('UPDATE bookings SET status = ? WHERE id = ?').run(status, Number(req.params.id));
+  return res.json({ booking: database.prepare(`${bookingSelect} WHERE bookings.id = ?`).get(Number(req.params.id)) });
+});
+
+app.get('/api/admin/summary', ...adminOnly, (req, res) => {
+  const counts = {
+    providers: database.prepare('SELECT COUNT(*) AS count FROM providers').get().count,
+    services: database.prepare('SELECT COUNT(*) AS count FROM services').get().count,
+    categories: database.prepare('SELECT COUNT(*) AS count FROM categories').get().count,
+    bookings: database.prepare('SELECT COUNT(*) AS count FROM bookings').get().count,
+    customers: database.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'Customer'").get().count
+  };
+  return res.json(counts);
+});
+
+app.get('/api/admin/categories', ...adminOnly, (req, res) => {
+  return res.json(database.prepare('SELECT * FROM categories ORDER BY name').all());
+});
+
+app.post('/api/admin/categories', ...adminOnly, (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name || name.length > 80) return res.status(400).json({ message: 'Category name is required (max 80 characters)' });
+  try {
+    const result = database.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
+    return res.status(201).json(database.prepare('SELECT * FROM categories WHERE id = ?').get(result.lastInsertRowid));
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ message: 'That category already exists' });
+    throw error;
+  }
+});
+
+app.delete('/api/admin/categories/:id', ...adminOnly, (req, res) => {
+  try {
+    const result = database.prepare('DELETE FROM categories WHERE id = ?').run(Number(req.params.id));
+    if (!result.changes) return res.status(404).json({ message: 'Category not found' });
+    return res.status(204).end();
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return res.status(409).json({ message: 'Remove or reassign listings in this category first' });
+    throw error;
+  }
+});
+
+app.get('/api/admin/providers', ...adminOnly, (req, res) => {
+  const providers = database.prepare(`${providerSelect} ORDER BY providers.created_at DESC`).all();
+  return res.json(providers);
+});
+
+app.post('/api/admin/providers', ...adminOnly, (req, res) => {
+  const { name, email, password, city, categoryId, bio, pricing, specialties, availability } = req.body;
+  if (!name?.trim() || !email?.trim() || !password || password.length < 10 || !city?.trim() || !isValidId(categoryId)) {
+    return res.status(400).json({ message: 'Name, email, password (10+ characters), city, and category are required' });
+  }
+  if (!database.prepare('SELECT id FROM categories WHERE id = ?').get(Number(categoryId))) {
+    return res.status(400).json({ message: 'Choose an existing category' });
+  }
+
+  try {
+    const createProvider = database.transaction(() => {
+      const providerResult = database.prepare(`
+        INSERT INTO providers (name, city, category_id, bio, pricing, specialties, availability)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(name.trim(), city.trim(), Number(categoryId), (bio || '').trim(), (pricing || '').trim(), (specialties || '').trim(), (availability || '').trim());
+      database.prepare('INSERT INTO users (name, email, password_hash, role, provider_id) VALUES (?, ?, ?, \'Provider\', ?)')
+        .run(name.trim(), email.trim(), bcrypt.hashSync(password, 12), providerResult.lastInsertRowid);
+      return providerResult.lastInsertRowid;
+    });
+    const provider = database.prepare(`${providerSelect} WHERE providers.id = ?`).get(createProvider());
+    return res.status(201).json(provider);
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ message: 'An account with this email already exists' });
+    throw error;
+  }
+});
+
+app.patch('/api/admin/providers/:id', ...adminOnly, (req, res) => {
+  const { name, city, categoryId, bio, pricing, specialties, availability, isActive } = req.body;
+  if (!name?.trim() || !city?.trim() || !isValidId(categoryId) || typeof isActive !== 'boolean') {
+    return res.status(400).json({ message: 'Name, city, category, and active status are required' });
+  }
+  const updateProvider = database.transaction(() => {
+    const result = database.prepare(`
+      UPDATE providers SET name = ?, city = ?, category_id = ?, bio = ?, pricing = ?, specialties = ?, availability = ?, is_active = ?
+      WHERE id = ?
+    `).run(name.trim(), city.trim(), Number(categoryId), (bio || '').trim(), (pricing || '').trim(), (specialties || '').trim(), (availability || '').trim(), isActive ? 1 : 0, Number(req.params.id));
+    if (!result.changes) return false;
+    database.prepare('UPDATE users SET name = ? WHERE provider_id = ?').run(name.trim(), Number(req.params.id));
+    return true;
+  });
+  if (!updateProvider()) return res.status(404).json({ message: 'Provider not found' });
+  return res.json(database.prepare(`${providerSelect} WHERE providers.id = ?`).get(Number(req.params.id)));
+});
+
+app.delete('/api/admin/providers/:id', ...adminOnly, (req, res) => {
+  const removeProvider = database.transaction(() => {
+    database.prepare('DELETE FROM users WHERE provider_id = ?').run(Number(req.params.id));
+    return database.prepare('DELETE FROM providers WHERE id = ?').run(Number(req.params.id));
+  });
+  try {
+    const result = removeProvider();
+    if (!result.changes) return res.status(404).json({ message: 'Provider not found' });
+    return res.status(204).end();
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return res.status(409).json({ message: 'A provider with bookings cannot be deleted; deactivate the profile instead' });
+    throw error;
+  }
+});
+
+app.get('/api/admin/services', ...adminOnly, (req, res) => {
+  return res.json(database.prepare(`${serviceSelect} ORDER BY services.created_at DESC`).all());
+});
+
+app.post('/api/admin/services', ...adminOnly, (req, res) => {
+  const { providerId, categoryId, title, price, description } = req.body;
+  if (!isValidId(providerId) || !isValidId(categoryId) || !title?.trim() || !Number.isInteger(Number(price)) || Number(price) < 0) {
+    return res.status(400).json({ message: 'Provider, category, title, and a non-negative whole-number price are required' });
+  }
+  const providerExists = database.prepare('SELECT id FROM providers WHERE id = ?').get(Number(providerId));
+  const categoryExists = database.prepare('SELECT id FROM categories WHERE id = ?').get(Number(categoryId));
+  if (!providerExists || !categoryExists) return res.status(400).json({ message: 'Select an existing provider and category' });
+  const result = database.prepare('INSERT INTO services (provider_id, category_id, title, price, description) VALUES (?, ?, ?, ?, ?)')
+    .run(Number(providerId), Number(categoryId), title.trim(), Number(price), (description || '').trim());
+  return res.status(201).json(database.prepare(`${serviceSelect} WHERE services.id = ?`).get(result.lastInsertRowid));
+});
+
+app.patch('/api/admin/services/:id', ...adminOnly, (req, res) => {
+  const { providerId, categoryId, title, price, description, isActive } = req.body;
+  if (!isValidId(providerId) || !isValidId(categoryId) || !title?.trim() || !Number.isInteger(Number(price)) || Number(price) < 0 || typeof isActive !== 'boolean') {
+    return res.status(400).json({ message: 'Provider, category, title, price, and active status are required' });
+  }
+  const result = database.prepare(`
+    UPDATE services SET provider_id = ?, category_id = ?, title = ?, price = ?, description = ?, is_active = ? WHERE id = ?
+  `).run(Number(providerId), Number(categoryId), title.trim(), Number(price), (description || '').trim(), isActive ? 1 : 0, Number(req.params.id));
+  if (!result.changes) return res.status(404).json({ message: 'Service not found' });
+  return res.json(database.prepare(`${serviceSelect} WHERE services.id = ?`).get(Number(req.params.id)));
+});
+
+app.delete('/api/admin/services/:id', ...adminOnly, (req, res) => {
+  try {
+    const result = database.prepare('DELETE FROM services WHERE id = ?').run(Number(req.params.id));
+    if (!result.changes) return res.status(404).json({ message: 'Service not found' });
+    return res.status(204).end();
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return res.status(409).json({ message: 'A service with bookings cannot be deleted; deactivate it instead' });
+    throw error;
+  }
+});
+
+app.get('/api/admin/bookings', ...adminOnly, (req, res) => {
+  return res.json(database.prepare(`${bookingSelect} ORDER BY bookings.created_at DESC`).all());
+});
+
+app.use((error, req, res, next) => {
+  console.error(error);
+  return res.status(500).json({ message: 'An unexpected server error occurred' });
 });
 
 app.listen(port, () => {
