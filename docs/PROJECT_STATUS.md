@@ -26,7 +26,7 @@ The following are in the product plan but are not part of the current MVP, accor
 - Review submission and moderation workflows.
 - Native mobile apps and expansion beyond the initial web-marketplace scope.
 
-## Recommended Next Steps
+## Next Steps
 
 1. Run the app locally and check the key customer, provider, and admin flows end to end. Add or document repeatable tests; the package scripts currently define no test command.
 2. Use the admin dashboard to add the initial real categories, providers, and service listings, then decide the first launch city and category priorities.
@@ -36,7 +36,7 @@ The following are in the product plan but are not part of the current MVP, accor
 
 ## Decisions Still Open
 
-- Initial launch city and category priorities.
+- Initial category priorities.
 - Hosting and production operations, including database backup and recovery.
 - Payment provider and escrow model.
 - Provider verification standards and process.
