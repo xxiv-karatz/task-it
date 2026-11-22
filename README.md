@@ -23,9 +23,13 @@ Customers often struggle to find trustworthy, reliable professionals for everyda
 
 - Browse administrator-created service categories
 - Search for services and providers
-- View sample provider listings and pricing
+- Filter marketplace services by category and city
+- View provider listings and pricing
 - Review ratings and service descriptions
 - Request a service and view its status in booking history
+- Cancel pending or accepted booking requests
+- Prevent duplicate provider bookings at the same date and time
+- Validate that booking requests use a future date and time
 - Sign in and return to a persisted customer account
 
 ### Provider-facing
@@ -87,6 +91,9 @@ Set `JWT_SECRET` to a stable, private value before deployment. In development, i
 - GET /api/bookings/mine (customer session required)
 - GET /api/provider/dashboard (provider session required)
 - PATCH /api/bookings/:id/status (provider session required)
+- PATCH /api/bookings/:id/cancel (customer session required)
+- PATCH /api/account/password (customer/provider session required)
+- PATCH /api/provider/profile (provider session required)
 - `/api/admin/*` routes for summary, categories, provider accounts, service listings, and bookings (admin session required)
 
 ## Current Status

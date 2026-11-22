@@ -83,4 +83,34 @@ if (database.pragma('user_version', { simple: true }) < 1) {
   `);
 }
 
+if (database.pragma('user_version', { simple: true }) < 2) {
+  database.transaction(() => {
+    database.exec(`
+      CREATE TABLE bookings_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL REFERENCES users(id),
+        provider_id INTEGER NOT NULL REFERENCES providers(id),
+        service_id INTEGER NOT NULL REFERENCES services(id),
+        date TEXT NOT NULL,
+        time TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'Pending'
+          CHECK (status IN ('Pending', 'Accepted', 'Completed', 'Declined', 'Cancelled')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    database.exec(`
+      INSERT INTO bookings_v2 (id, customer_id, provider_id, service_id, date, time, notes, status, created_at)
+      SELECT id, customer_id, provider_id, service_id, date, time, notes, status, created_at FROM bookings;
+    `);
+    database.exec(`
+      DROP TABLE bookings;
+      ALTER TABLE bookings_v2 RENAME TO bookings;
+      CREATE INDEX bookings_customer_idx ON bookings(customer_id, date);
+      CREATE INDEX bookings_provider_idx ON bookings(provider_id, date);
+      PRAGMA user_version = 2;
+    `);
+  })();
+}
+
 export default database;

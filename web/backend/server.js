@@ -165,6 +165,20 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
+app.patch('/api/account/password', authenticate, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (req.user.role === 'Admin') return res.status(400).json({ message: 'Use the environment configuration to change the admin password' });
+  if (!currentPassword || !newPassword || newPassword.length < 10) {
+    return res.status(400).json({ message: 'The current password and a new password of at least 10 characters are required' });
+  }
+  const user = database.prepare('SELECT password_hash AS passwordHash FROM users WHERE id = ?').get(req.user.id);
+  if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
+    return res.status(401).json({ message: 'The current password is incorrect' });
+  }
+  database.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(newPassword, 12), req.user.id);
+  return res.json({ message: 'Password changed successfully' });
+});
+
 app.get('/api/categories', (req, res) => {
   const categories = database.prepare(`
     SELECT categories.id, categories.name, COUNT(DISTINCT services.id) AS serviceCount
@@ -176,12 +190,17 @@ app.get('/api/categories', (req, res) => {
 
 app.get('/api/services', (req, res) => {
   const query = `%${(req.query.q || '').toString().trim()}%`;
+  const categoryId = isValidId(req.query.categoryId) ? Number(req.query.categoryId) : null;
+  const city = (req.query.city || '').toString().trim();
+  const cityQuery = city ? `%${city}%` : null;
   const services = database.prepare(`
     ${serviceSelect}
     WHERE services.is_active = 1 AND providers.is_active = 1
       AND (services.title LIKE ? OR categories.name LIKE ? OR providers.name LIKE ? OR providers.city LIKE ?)
+      AND (? IS NULL OR services.category_id = ?)
+      AND (? IS NULL OR providers.city LIKE ?)
     ORDER BY services.created_at DESC, services.id DESC
-  `).all(query, query, query, query);
+  `).all(query, query, query, query, categoryId, categoryId, cityQuery, cityQuery);
   res.json({ count: services.length, services });
 });
 
@@ -223,14 +242,56 @@ app.post('/api/bookings', authenticate, requireRole('Customer'), (req, res) => {
     return res.status(400).json({ message: 'Select a provider, service, valid date, and time' });
   }
 
+  const selectedDate = new Date(`${date}T${time}:00`);
+  if (Number.isNaN(selectedDate.getTime()) || selectedDate <= new Date()) {
+    return res.status(400).json({ message: 'Choose a future date and time' });
+  }
+
   const service = database.prepare('SELECT id FROM services WHERE id = ? AND provider_id = ? AND is_active = 1').get(Number(serviceId), Number(providerId));
   const provider = database.prepare('SELECT id FROM providers WHERE id = ? AND is_active = 1').get(Number(providerId));
   if (!service || !provider) return res.status(404).json({ message: 'Service is no longer available' });
+
+  const conflictingBooking = database.prepare(`
+    SELECT id FROM bookings
+    WHERE provider_id = ? AND date = ? AND time = ? AND status IN ('Pending', 'Accepted')
+  `).get(Number(providerId), date, time);
+  if (conflictingBooking) return res.status(409).json({ message: 'The provider already has a request at that date and time' });
 
   const result = database.prepare('INSERT INTO bookings (customer_id, provider_id, service_id, date, time, notes) VALUES (?, ?, ?, ?, ?, ?)')
     .run(req.user.id, Number(providerId), Number(serviceId), date, time, (notes || '').toString().slice(0, 2000));
   const booking = database.prepare(`${bookingSelect} WHERE bookings.id = ?`).get(result.lastInsertRowid);
   return res.status(201).json({ booking });
+});
+
+app.patch('/api/bookings/:id/cancel', authenticate, requireRole('Customer'), (req, res) => {
+  const existing = database.prepare(`
+    SELECT id, customer_id AS customerId, status
+    FROM bookings WHERE id = ?
+  `).get(Number(req.params.id));
+  if (!existing) return res.status(404).json({ message: 'Booking not found' });
+  if (existing.customerId !== req.user.id) return res.status(403).json({ message: 'You cannot cancel this booking' });
+  if (!['Pending', 'Accepted'].includes(existing.status)) {
+    return res.status(409).json({ message: `A ${existing.status.toLowerCase()} booking cannot be cancelled` });
+  }
+  database.prepare("UPDATE bookings SET status = 'Cancelled' WHERE id = ?").run(existing.id);
+  return res.json({ booking: database.prepare(`${bookingSelect} WHERE bookings.id = ?`).get(existing.id) });
+});
+
+app.patch('/api/provider/profile', authenticate, requireRole('Provider'), (req, res) => {
+  if (!req.user.providerId) return res.status(403).json({ message: 'Provider profile is not configured' });
+  const { city, categoryId, bio, pricing, specialties, availability } = req.body;
+  if (!city?.trim() || !isValidId(categoryId)) {
+    return res.status(400).json({ message: 'City and service category are required' });
+  }
+  if (!database.prepare('SELECT id FROM categories WHERE id = ?').get(Number(categoryId))) {
+    return res.status(400).json({ message: 'Choose an existing category' });
+  }
+  database.prepare(`
+    UPDATE providers
+    SET city = ?, category_id = ?, bio = ?, pricing = ?, specialties = ?, availability = ?
+    WHERE id = ?
+  `).run(city.trim(), Number(categoryId), (bio || '').trim().slice(0, 2000), (pricing || '').trim().slice(0, 200), (specialties || '').trim().slice(0, 500), (availability || '').trim().slice(0, 500), req.user.providerId);
+  return res.json({ provider: database.prepare(`${providerSelect} WHERE providers.id = ?`).get(req.user.providerId) });
 });
 
 app.patch('/api/bookings/:id/status', authenticate, (req, res, next) => {

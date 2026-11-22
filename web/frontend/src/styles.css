@@ -153,6 +153,7 @@ button {
 }
 
 .search-box input,
+.search-box select,
 .auth-form input,
 .auth-form select,
 .booking-form input,
@@ -163,6 +164,10 @@ button {
   border-radius: 12px;
   padding: 14px 16px;
   background: rgba(255, 255, 255, 0.8);
+}
+
+.search-box select {
+  min-width: 150px;
 }
 
 .hero-panel {
@@ -236,6 +241,10 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  text-align: left;
+  cursor: pointer;
 }
 
 .category-card span,
@@ -657,6 +666,11 @@ button {
 .status-declined {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.status-cancelled {
+  background: #e5e7eb;
+  color: #374151;
 }
 
 .empty-bookings {

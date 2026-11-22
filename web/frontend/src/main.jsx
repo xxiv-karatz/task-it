@@ -7,6 +7,8 @@ function App() {
   const [categories, setCategories] = useState([]);
   const [providers, setProviders] = useState([]);
   const [query, setQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState(() => {
     try {
@@ -40,7 +42,7 @@ function App() {
     const loadData = async () => {
       try {
         const [servicesResponse, categoriesResponse, providersResponse] = await Promise.all([
-          fetch(`/api/services?q=${encodeURIComponent(query)}`),
+          fetch(`/api/services?q=${encodeURIComponent(query)}&categoryId=${encodeURIComponent(categoryFilter)}&city=${encodeURIComponent(cityFilter)}`),
           fetch('/api/categories'),
           fetch('/api/providers')
         ]);
@@ -60,7 +62,7 @@ function App() {
     };
 
     loadData();
-  }, [query, view]);
+  }, [query, categoryFilter, cityFilter, view]);
 
   useEffect(() => {
     if (!session?.token) return;
@@ -306,6 +308,23 @@ function App() {
     }
   };
 
+  const cancelBooking = async (bookingId) => {
+    try {
+      const response = await fetch(`/api/bookings/${bookingId}/cancel`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Could not cancel booking');
+      setAccountBookings((bookings) => bookings.map((booking) =>
+        booking.id === bookingId ? { ...booking, status: 'Cancelled' } : booking
+      ));
+      setAccountError('');
+    } catch (error) {
+      setAccountError(error.message);
+    }
+  };
+
   const handleBookingSubmit = async (booking) => {
     const payload = {
       providerId: selectedProvider.id,
@@ -383,6 +402,17 @@ function App() {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
+              <select aria-label="Filter by category" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                <option value="">All categories</option>
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select>
+              <input
+                type="text"
+                aria-label="Filter by city"
+                placeholder="City"
+                value={cityFilter}
+                onChange={(event) => setCityFilter(event.target.value)}
+              />
               <button className="primary-button" onClick={() => setView('home')}>Search</button>
             </div>
           </div>
@@ -396,10 +426,10 @@ function App() {
 
           <div className="category-list">
             {categories.map((category) => (
-              <div className="category-card" key={category.name}>
+              <button className="category-card" key={category.name} onClick={() => setCategoryFilter(String(category.id))}>
                 <span>{category.name}</span>
                 <strong>{category.serviceCount} services</strong>
-              </div>
+              </button>
             ))}
           </div>
           {!loading && categories.length === 0 && <p className="status-copy">No categories have been added yet.</p>}
@@ -714,7 +744,7 @@ function App() {
 
               <label>
                 Preferred date
-                <input name="date" type="date" required />
+                <input name="date" type="date" min={new Date().toISOString().slice(0, 10)} required />
               </label>
 
               <label>
@@ -777,16 +807,21 @@ function App() {
             <div className="booking-row-main">
               <div>
                 <span className={`status-chip status-${booking.status.toLowerCase()}`}>{booking.status}</span>
-                <h2>{booking.service_title}</h2>
-                <p>{booking.provider_name} · {booking.provider_city}</p>
+                <h2>{booking.serviceTitle}</h2>
+                <p>{booking.providerName} · {booking.providerCity}</p>
               </div>
-              <strong>R{booking.service_price}</strong>
+              <strong>R{booking.servicePrice}</strong>
             </div>
             <div className="booking-row-detail">
               <span>{booking.date} at {booking.time}</span>
               <span>Booking #{booking.id}</span>
             </div>
             {booking.notes && <p className="booking-notes">{booking.notes}</p>}
+            {['Pending', 'Accepted'].includes(booking.status) && (
+              <div className="booking-actions">
+                <button className="quiet-button danger-action" onClick={() => cancelBooking(booking.id)}>Cancel booking</button>
+              </div>
+            )}
           </article>
         ))}
       </div>
@@ -832,10 +867,10 @@ function App() {
             <div className="booking-row-main">
               <div>
                 <span className={`status-chip status-${booking.status.toLowerCase()}`}>{booking.status}</span>
-                <h2>{booking.service_title}</h2>
-                <p>{booking.customer_name} · {booking.customer_email}</p>
+                <h2>{booking.serviceTitle}</h2>
+                <p>{booking.customerName} · {booking.customerEmail}</p>
               </div>
-              <strong>R{booking.service_price}</strong>
+              <strong>R{booking.servicePrice}</strong>
             </div>
             <div className="booking-row-detail">
               <span>{booking.date} at {booking.time}</span>
